@@ -127,3 +127,6 @@ poetry.lock
 *.lock
 pylock.toml
 reference_material/
+migration_example/
+migration_example/*
+migration_example

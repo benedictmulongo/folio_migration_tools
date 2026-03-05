@@ -151,16 +151,20 @@ class LibraryConfiguration(BaseModel):
             description=(
                 "The username for the FOLIO user account performing the migration. "
                 "User should have a full admin permissions/roles in FOLIO. "
+                "Required when auth_type is 'legacy'."
             ),
         ),
-    ]
+    ] = ""
     folio_password: Annotated[
         str,
         Field(
             title="FOLIO API Gateway password",
-            description=("The password for the FOLIO user account performing the migration. "),
+            description=(
+                "The password for the FOLIO user account performing the migration. "
+                "Required when auth_type is 'legacy'."
+            ),
         ),
-    ]
+    ] = ""
     base_folder: DirectoryPath = Field(
         description=(
             "The base folder for migration. "
@@ -245,6 +249,68 @@ class LibraryConfiguration(BaseModel):
             ),
         ),
     ] = ""
+    auth_type: Annotated[
+        str,
+        Field(
+            title="Authentication type",
+            description=(
+                "The authentication type to use when connecting to FOLIO. "
+                "Use 'legacy' for traditional username/password (okapi) authentication, "
+                "or 'keycloak' for Keycloak client credentials authentication."
+            ),
+        ),
+    ] = "legacy"
+    client_id: Annotated[
+        str,
+        Field(
+            title="Keycloak client ID",
+            description=(
+                "The client ID for Keycloak authentication. "
+                "Required when auth_type is 'keycloak'."
+            ),
+        ),
+    ] = ""
+    client_secret: Annotated[
+        str,
+        Field(
+            title="Keycloak client secret",
+            description=(
+                "The client secret for Keycloak authentication. "
+                "Required when auth_type is 'keycloak'."
+            ),
+        ),
+    ] = ""
+    auth_base_url: Annotated[
+        str,
+        Field(
+            title="Keycloak auth base URL",
+            description=(
+                "The base URL for the Keycloak authentication server. "
+                "Required when auth_type is 'keycloak'. "
+                "If not provided, defaults to the gateway_url."
+            ),
+        ),
+    ] = ""
+    auth_username: Annotated[
+        str,
+        Field(
+            title="Keycloak auth username",
+            description=(
+                "Username for Keycloak authentication. "
+                "Optional when auth_type is 'keycloak'."
+            ),
+        ),
+    ] = ""
+    auth_password: Annotated[
+        str,
+        Field(
+            title="Keycloak auth password",
+            description=(
+                "Password for Keycloak authentication. "
+                "Optional when auth_type is 'keycloak'."
+            ),
+        ),
+    ] = ""
 
     @model_validator(mode="before")
     @classmethod
@@ -270,4 +336,29 @@ class LibraryConfiguration(BaseModel):
             values["failed_records_threshold"] = 10_000_000
             values["failed_percentage_threshold"] = 100
             values["generic_exception_threshold"] = 10_000_000
+        return values
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_auth_credentials(cls, values):
+        """Validate that the correct credentials are provided for the auth_type."""
+        auth_type = values.get("auth_type", "legacy")
+        if auth_type == "keycloak":
+            if not values.get("client_id"):
+                raise ValueError(
+                    "client_id is required when auth_type is 'keycloak'"
+                )
+            if not values.get("client_secret"):
+                raise ValueError(
+                    "client_secret is required when auth_type is 'keycloak'"
+                )
+        elif auth_type == "legacy":
+            if not values.get("folio_username"):
+                raise ValueError(
+                    "folio_username is required when auth_type is 'legacy'"
+                )
+            if not values.get("folio_password"):
+                raise ValueError(
+                    "folio_password is required when auth_type is 'legacy'"
+                )
         return values

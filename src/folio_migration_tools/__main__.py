@@ -75,6 +75,56 @@ def parse_args(args):
         prompt=False,
     )
     parser.add_argument(
+        "--auth_type",
+        help=(
+            "Authentication type: 'legacy' for username/password, "
+            "'keycloak' for client credentials."
+        ),
+        default=environ.get("FOLIO_MIGRATION_TOOLS_AUTH_TYPE", "legacy"),
+        prompt=False,
+    )
+    parser.add_argument(
+        "--client_id",
+        help="Keycloak client ID. Required when auth_type is 'keycloak'.",
+        default=environ.get("FOLIO_MIGRATION_TOOLS_CLIENT_ID"),
+        prompt=False,
+    )
+    parser.add_argument(
+        "--client_secret",
+        help="Keycloak client secret. Required when auth_type is 'keycloak'.",
+        default=environ.get("FOLIO_MIGRATION_TOOLS_CLIENT_SECRET"),
+        prompt=False,
+        secure=True,
+    )
+    parser.add_argument(
+        "--auth_base_url",
+        help=(
+            "Base URL for the Keycloak authentication server. "
+            "Required when auth_type is 'keycloak'. Defaults to gateway_url if not set."
+        ),
+        default=environ.get("FOLIO_MIGRATION_TOOLS_AUTH_BASE_URL"),
+        prompt=False,
+    )
+    parser.add_argument(
+        "--auth_username",
+        help=(
+            "Username for Keycloak authentication. "
+            "Optional when auth_type is 'keycloak'."
+        ),
+        default=environ.get("FOLIO_MIGRATION_TOOLS_AUTH_USERNAME"),
+        prompt=False,
+    )
+    parser.add_argument(
+        "--auth_password",
+        help=(
+            "Password for Keycloak authentication. "
+            "Optional when auth_type is 'keycloak'."
+        ),
+        default=environ.get("FOLIO_MIGRATION_TOOLS_AUTH_PASSWORD"),
+        prompt=False,
+        secure=True,
+    )
+    parser.add_argument(
         "--version",
         "-V",
         help="Show the version of the FOLIO Migration Tools",
@@ -96,6 +146,21 @@ def prep_library_config(args):
         config_file_humped["libraryInformation"]["folioPassword"] = args.folio_password
 
     config_file_humped["libraryInformation"]["baseFolder"] = args.base_folder_path
+
+    # Inject keycloak auth settings from CLI args if not already in config
+    if "authType" not in config_file_humped["libraryInformation"] and args.auth_type:
+        config_file_humped["libraryInformation"]["authType"] = args.auth_type
+    if "clientId" not in config_file_humped["libraryInformation"] and args.client_id:
+        config_file_humped["libraryInformation"]["clientId"] = args.client_id
+    if "clientSecret" not in config_file_humped["libraryInformation"] and args.client_secret:
+        config_file_humped["libraryInformation"]["clientSecret"] = args.client_secret
+    if "authBaseUrl" not in config_file_humped["libraryInformation"] and args.auth_base_url:
+        config_file_humped["libraryInformation"]["authBaseUrl"] = args.auth_base_url
+    if "authUsername" not in config_file_humped["libraryInformation"] and args.auth_username:
+        config_file_humped["libraryInformation"]["authUsername"] = args.auth_username
+    if "authPassword" not in config_file_humped["libraryInformation"] and args.auth_password:
+        config_file_humped["libraryInformation"]["authPassword"] = args.auth_password
+
     config_file = humps.decamelize(config_file_humped)
     library_config = LibraryConfiguration(**config_file["library_information"])
     if library_config.ecs_tenant_id:
@@ -173,16 +238,57 @@ def main():
             )
             sys.exit("Task Type Not Found")
         try:
-            with FolioClient(
-                library_config.gateway_url,
-                library_config.tenant_id,
-                library_config.folio_username,
-                library_config.folio_password,
-            ) as folio_client:
-                task_config = task_class.TaskConfiguration(**migration_task_config)
-                task_obj = task_class(task_config, library_config, folio_client)
-                task_obj.do_work()
-                task_obj.wrap_up()
+            if library_config.auth_type == "keycloak":
+                logger.info(
+                    "Using Keycloak authentication for tenant %s",
+                    library_config.tenant_id,
+                )
+                auth_base_url = (
+                    library_config.auth_base_url or library_config.gateway_url
+                )
+                folio_client_kwargs = {
+                    "auth_type": "keycloak",
+                    "auth_base_url": auth_base_url,
+                    "api_base_url": library_config.gateway_url,
+                }
+                if library_config.auth_username:
+                    folio_client_kwargs["auth_username"] = library_config.auth_username
+                if library_config.auth_password:
+                    folio_client_kwargs["auth_password"] = library_config.auth_password
+                print(f"gateway_url: {library_config.gateway_url}")
+                print(f"tenant_id: {library_config.tenant_id}")
+                print(f"client_id: {library_config.client_id}")
+                print(f"client_secret: {library_config.client_secret}")
+                print(f"auth_base_url: {auth_base_url}")
+                print(f"auth_type: {library_config.auth_type}")
+                print(f"folio_client_kwargs: {folio_client_kwargs}")
+                print("Attempting to connect to FOLIO with Keycloak authentication...")
+                with FolioClient(
+                    library_config.gateway_url,
+                    library_config.tenant_id,
+                    library_config.client_id,
+                    library_config.client_secret,
+                    **folio_client_kwargs,
+                ) as folio_client:
+                    task_config = task_class.TaskConfiguration(**migration_task_config)
+                    task_obj = task_class(task_config, library_config, folio_client)
+                    task_obj.do_work()
+                    task_obj.wrap_up()
+            else:
+                logger.info(
+                    "Using legacy authentication for tenant %s",
+                    library_config.tenant_id,
+                )
+                with FolioClient(
+                    library_config.gateway_url,
+                    library_config.tenant_id,
+                    library_config.folio_username,
+                    library_config.folio_password,
+                ) as folio_client:
+                    task_config = task_class.TaskConfiguration(**migration_task_config)
+                    task_obj = task_class(task_config, library_config, folio_client)
+                    task_obj.do_work()
+                    task_obj.wrap_up()
         except TransformationProcessError as tpe:
             logger.critical(tpe.message)
             print(f"\n{tpe.message}: {tpe.data_value}")
