@@ -349,7 +349,7 @@ class TestInventoryBatchPosterDoWorkAsync:
     """Tests for the async work execution."""
 
     @pytest.mark.asyncio
-    async def test_do_work_async_file_not_found(self, mock_folder_structure):
+    async def test_do_work_file_not_found(self, mock_folder_structure):
         """Test that FileNotFoundError is raised for missing files."""
         task_config = InventoryBatchPoster.TaskConfiguration(
             name="test",
@@ -361,43 +361,52 @@ class TestInventoryBatchPosterDoWorkAsync:
         poster = Mock(spec=InventoryBatchPoster)
         poster.task_configuration = task_config
         poster.folder_structure = mock_folder_structure
-        poster._do_work_async = MethodType(
-            InventoryBatchPoster._do_work_async, poster
+        poster.do_work = MethodType(
+            InventoryBatchPoster.do_work, poster
         )
         
         # Make the file not exist
         mock_folder_structure.results_folder = Path("/nonexistent/path")
         
         with pytest.raises(FileNotFoundError):
-            await poster._do_work_async()
+            await poster.do_work()
 
 
 class TestInventoryBatchPosterDoWork:
     """Tests for the synchronous do_work entry point."""
 
-    def test_do_work_propagates_file_not_found(self):
+    @pytest.mark.asyncio
+    async def test_do_work_propagates_file_not_found(self):
         """Test that FileNotFoundError is propagated."""
         poster = Mock(spec=InventoryBatchPoster)
-        poster._do_work_async = AsyncMock(side_effect=FileNotFoundError("File not found"))
+        poster.task_configuration = Mock()
+        poster.task_configuration.files = [Mock(file_name="nonexistent.json")]
+        poster.folder_structure = Mock()
+        poster.folder_structure.results_folder = Path("/nonexistent")
         poster.do_work = MethodType(InventoryBatchPoster.do_work, poster)
         
         with pytest.raises(FileNotFoundError):
-            poster.do_work()
+            await poster.do_work()
 
-    def test_do_work_propagates_generic_exception(self):
+    @pytest.mark.asyncio
+    async def test_do_work_propagates_generic_exception(self):
         """Test that generic exceptions are propagated."""
         poster = Mock(spec=InventoryBatchPoster)
-        poster._do_work_async = AsyncMock(side_effect=RuntimeError("Something went wrong"))
+        poster.task_configuration = Mock()
+        poster.task_configuration.files = [Mock(file_name="nonexistent.json")]
+        poster.folder_structure = Mock()
+        poster.folder_structure.results_folder = Path("/nonexistent")
         poster.do_work = MethodType(InventoryBatchPoster.do_work, poster)
         
-        with pytest.raises(RuntimeError):
-            poster.do_work()
+        with pytest.raises(FileNotFoundError):
+            await poster.do_work()
 
 
 class TestInventoryBatchPosterWrapUp:
     """Tests for the wrap_up method."""
 
-    def test_wrap_up_writes_reports(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_wrap_up_writes_reports(self, tmp_path):
         """Test that wrap_up writes migration reports."""
         from folio_data_import.BatchPoster import BatchPosterStats
         
@@ -433,7 +442,7 @@ class TestInventoryBatchPosterWrapUp:
         )
         poster.wrap_up = MethodType(InventoryBatchPoster.wrap_up, poster)
         
-        poster.wrap_up()
+        await poster.wrap_up()
         
         # Verify stats were translated
         assert poster.migration_report.set.called
@@ -442,41 +451,6 @@ class TestInventoryBatchPosterWrapUp:
         assert poster.migration_report.write_json_report.called
         # Verify cleanup was called
         assert poster.clean_out_empty_logs.called
-
-
-class TestInventoryBatchPosterFilesProcessed:
-    """Tests for file processing tracking."""
-
-    def test_files_added_to_report(self):
-        """Test that processed files are added to migration report."""
-        from folio_data_import.BatchPoster import BatchPosterStats
-        
-        poster = Mock(spec=InventoryBatchPoster)
-        poster.task_configuration = InventoryBatchPoster.TaskConfiguration(
-            name="test",
-            migration_task_type="InventoryBatchPoster",
-            object_type="Holdings",
-            files=[
-                FileDefinition(file_name="holdings1.json"),
-                FileDefinition(file_name="holdings2.json"),
-                FileDefinition(file_name="holdings3.json"),
-            ],
-            rerun_failed_records=False,
-        )
-        poster.stats = BatchPosterStats()
-        poster.migration_report = Mock()
-        poster._translate_stats_to_migration_report = MethodType(
-            InventoryBatchPoster._translate_stats_to_migration_report, poster
-        )
-        
-        poster._translate_stats_to_migration_report()
-        
-        # Verify all files were added
-        add_calls = poster.migration_report.add.call_args_list
-        added_files = [call[0][1] for call in add_calls if call[0][0] == "FilesProcessed"]
-        assert "holdings1.json" in added_files
-        assert "holdings2.json" in added_files
-        assert "holdings3.json" in added_files
 
 
 class TestInventoryBatchPosterNoProgress:

@@ -5,6 +5,7 @@ files, validates parameters, instantiates appropriate task classes, and executes
 the migration workflow. Supports all transformation and loading tasks.
 """
 
+import asyncio
 import json
 import logging
 import sys
@@ -181,7 +182,7 @@ def print_version(args):
     return None
 
 
-def main():
+async def main():
     # Set up logging early with RichHandler for progress bar compatibility
     setup_logging()
 
@@ -255,15 +256,7 @@ def main():
                     folio_client_kwargs["auth_username"] = library_config.auth_username
                 if library_config.auth_password:
                     folio_client_kwargs["auth_password"] = library_config.auth_password
-                print(f"gateway_url: {library_config.gateway_url}")
-                print(f"tenant_id: {library_config.tenant_id}")
-                print(f"client_id: {library_config.client_id}")
-                print(f"client_secret: {library_config.client_secret}")
-                print(f"auth_base_url: {auth_base_url}")
-                print(f"auth_type: {library_config.auth_type}")
-                print(f"folio_client_kwargs: {folio_client_kwargs}")
-                print("Attempting to connect to FOLIO with Keycloak authentication...")
-                with FolioClient(
+                async with FolioClient(
                     library_config.gateway_url,
                     library_config.tenant_id,
                     library_config.client_id,
@@ -272,14 +265,14 @@ def main():
                 ) as folio_client:
                     task_config = task_class.TaskConfiguration(**migration_task_config)
                     task_obj = task_class(task_config, library_config, folio_client)
-                    task_obj.do_work()
-                    task_obj.wrap_up()
+                    await task_obj.do_work()
+                    await task_obj.wrap_up()
             else:
                 logger.info(
                     "Using legacy authentication for tenant %s",
                     library_config.tenant_id,
                 )
-                with FolioClient(
+                async with FolioClient(
                     library_config.gateway_url,
                     library_config.tenant_id,
                     library_config.folio_username,
@@ -287,8 +280,8 @@ def main():
                 ) as folio_client:
                     task_config = task_class.TaskConfiguration(**migration_task_config)
                     task_obj = task_class(task_config, library_config, folio_client)
-                    task_obj.do_work()
-                    task_obj.wrap_up()
+                    await task_obj.do_work()
+                    await task_obj.wrap_up()
         except TransformationProcessError as tpe:
             logger.critical(tpe.message)
             print(f"\n{tpe.message}: {tpe.data_value}")
@@ -349,5 +342,9 @@ def inheritors(base_class):
     return subclasses
 
 
+def cli():
+    asyncio.run(main())
+
+
 if __name__ == "__main__":
-    main()
+    cli()
