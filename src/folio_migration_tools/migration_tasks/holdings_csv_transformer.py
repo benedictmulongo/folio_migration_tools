@@ -361,7 +361,7 @@ class HoldingsCsvTransformer(MigrationTaskBase):
             )
             with open(self.folder_structure.created_objects_path, "w+") as holdings_file:
                 for holding in self.holdings.values():
-                    for legacy_id in holding["formerIds"]:
+                    for legacy_id in holding.get("formerIds", []):
                         # Prevent the first item in a boundwith to be overwritten
                         # TODO: Find out why not
                         # if legacy_id not in self.holdings_id_map:
